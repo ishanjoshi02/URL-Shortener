@@ -36,6 +36,11 @@ public class LoginActivity extends AppCompatActivity {
         
         mButton.setOnClickListener(mClickListener);
 
+
+
+        if (mAuth.getCurrentUser() != null)
+            startActivity(new Intent(LoginActivity.this, MainActivity.class));
+
     }
 
     private View.OnClickListener mClickListener =

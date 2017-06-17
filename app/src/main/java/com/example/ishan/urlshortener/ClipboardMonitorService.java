@@ -1,12 +1,18 @@
 package com.example.ishan.urlshortener;
 
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.IBinder;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.TaskStackBuilder;
 import android.text.TextUtils;
 import android.util.Log;
 import android.webkit.URLUtil;
@@ -38,39 +44,23 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ClipboardMonitorService extends Service {
-
     private static final String TAG = "ClipboardManager";
-
     private ExecutorService mThreadPool = Executors.newSingleThreadExecutor();
     private ClipboardManager mClipboardManager;
-
     private DatabaseReference mDatabase;
     private FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
-
     private Urlshortener mUrlshortener;
-
-    public ClipboardMonitorService() {
-
-    }
-
     @Override
     public void onCreate() {
         super.onCreate();
-
         // TODO: 16/6/17 Show Notification when this service is running
         mClipboardManager =
                 (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         mClipboardManager.addPrimaryClipChangedListener(mOnPrimaryClipChangedListener);
-
-        //Initialising Firebase Database
         mDatabase = FirebaseDatabase.getInstance().getReference();
-
         mUrlshortener = new Urlshortener
                 .Builder(AndroidHttp.newCompatibleTransport(), AndroidJsonFactory.getDefaultInstance(), null).build();
-
-
     }
-
     @Override
     public void onDestroy() {
         super.onDestroy();
@@ -78,12 +68,10 @@ public class ClipboardMonitorService extends Service {
             mClipboardManager.removePrimaryClipChangedListener(mOnPrimaryClipChangedListener);
         }
     }
-
     @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
-
     private ClipboardManager.OnPrimaryClipChangedListener mOnPrimaryClipChangedListener =
             new ClipboardManager.OnPrimaryClipChangedListener() {
                 @Override
@@ -97,25 +85,20 @@ public class ClipboardMonitorService extends Service {
                     );
                 }
             };
-
     private class WriteHistoryRunnable implements Runnable {
-
         private final Date now;
         private final CharSequence mTextToWrite;
-
         public WriteHistoryRunnable(CharSequence text) {
             now = new Date(System.currentTimeMillis());
             mTextToWrite = text;
         }
-
         @Override
         public void run() {
             if (TextUtils.isEmpty(mTextToWrite) || !URLUtil.isValidUrl(mTextToWrite.toString()))
                 return;
-            mDatabase.child("users").child(currentUser.getUid()).push().setValue(mTextToWrite);
             BufferedReader mBufferedReader;
             StringBuffer mStringBuffer;
-            String res = null;
+            String res;
             String shorturl = null;
             String json = "{\"longUrl\":\"" + mTextToWrite + "\"}";
             try {
@@ -133,21 +116,17 @@ public class ClipboardMonitorService extends Service {
                 writer.flush();
                 writer.close();
                 os.close();
-
                 int status = con.getResponseCode();
                 InputStream inputStream;
-                if (status==HttpURLConnection.HTTP_OK)
+                if (status == HttpURLConnection.HTTP_OK)
                     inputStream = con.getInputStream();
                 else
                     inputStream = con.getErrorStream();
                 mBufferedReader = new BufferedReader(new InputStreamReader(inputStream));
-
                 mStringBuffer = new StringBuffer();
-
                 String line = "";
                 while ((line=mBufferedReader.readLine())!=null)
                     mStringBuffer.append(line);
-
                 res = mStringBuffer.toString();
                 try {
                     JSONObject jsonObject = new JSONObject(res);
@@ -156,7 +135,6 @@ public class ClipboardMonitorService extends Service {
                     e.printStackTrace();
                     Log.d(TAG, "JSON!0");
                 }
-
             } catch (MalformedURLException e) {
                 e.printStackTrace();
                 Log.d(TAG, "MalformedURLException");
@@ -164,11 +142,30 @@ public class ClipboardMonitorService extends Service {
                 e.printStackTrace();
                 Log.d(TAG, "IO");
             }
-            mDatabase.child("users").child(currentUser.getUid()).push().setValue(res);
-            mDatabase.child("users").child(currentUser.getUid()).push().setValue(shorturl);
+            mDatabase.child("users").child(currentUser.getUid()).push().setValue(mTextToWrite);
             mClipboardManager.setPrimaryClip(ClipData.newRawUri("", Uri.parse(shorturl)));
-
+            notification();
         }
-
+    }
+    private void notification() {
+        NotificationCompat.Builder mBuilder =
+                new NotificationCompat.Builder(this)
+                .setSmallIcon(R.drawable.common_google_signin_btn_text_light_pressed)
+                .setContentText("Link Shortened")
+                .setContentTitle(getString(R.string.app_name))
+                .setAutoCancel(true);
+        Intent resultIntent = new Intent(this, MainActivity.class);
+        TaskStackBuilder stackBuilder = TaskStackBuilder.create(this);
+        stackBuilder.addParentStack(MainActivity.class);
+        stackBuilder.addNextIntent(resultIntent);
+        PendingIntent resultPendingIntent =
+                stackBuilder.getPendingIntent(
+                        0,
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                );
+        mBuilder.setContentIntent(resultPendingIntent);
+        NotificationManager notificationManager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        notificationManager.notify(209, mBuilder.build());
     }
 }
